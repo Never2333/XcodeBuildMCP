@@ -1,0 +1,46 @@
+name: Sync upstream no telemetry
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure git
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Merge upstream main into work branch
+        run: |
+          git remote add upstream https://github.com/getsentry/XcodeBuildMCP.git
+          git fetch upstream main
+          git fetch origin main
+          git checkout -B auto/upstream-no-telemetry origin/main
+          git merge --no-edit upstream/main
+      - name: Apply no-telemetry hardening
+        run: scripts/apply-no-telemetry.sh
+      - name: Install dependencies
+        run: npm install
+      - name: Audit
+        run: scripts/audit-no-telemetry.sh
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Commit changes
+        run: |
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync upstream and re-apply no-telemetry hardening"
+          fi
+      - name: Push branch
+        run: git push --force origin auto/upstream-no-telemetry
+      - name: Create or update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --base main --head auto/upstream-no-telemetry --title "Sync upstream and re-apply no-telemetry hardening" --body "This PR merges upstream changes, re-applies no-telemetry hardening, runs audit checks, and runs typecheck/build. Manual review is required before merge." || gh pr edit auto/upstream-no-telemetry --title "Sync upstream and re-apply no-telemetry hardening" --body "This PR merges upstream changes, re-applies no-telemetry hardening, runs audit checks, and runs typecheck/build. Manual review is required before merge."
